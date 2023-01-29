@@ -13,6 +13,7 @@ from json_codec import (
     get_class_or_type_name,
     decode,
     encode,
+    mapping,
 )
 
 
@@ -377,3 +378,79 @@ class TestJsonDeserializerCodec:
 
         bar = decode(json.loads(dummy_json_text), Dummy)
         assert foo == bar
+
+    def test_rename_fields(self):
+        @dataclass
+        @mapping(x="a", y="b")
+        class C:
+            x: int
+            y: int
+
+        @dataclass()
+        @mapping(value="val", __op="op", id="guid", c="sub")
+        class Dummy:
+            id: str
+            __op: int
+            value: int
+            c:C
+            succ: bool = True
+
+        dummy_json_text = '{"guid": "12", "op": 3, "val": 4, "sub": {"a": 12, "b": 13}, "succ": true}'
+        foo = Dummy("12", 3, 4, C(12, 13))
+        assert json.dumps(encode(foo)) == dummy_json_text
+
+        bar = decode(json.loads(dummy_json_text), Dummy)
+        assert foo == bar
+
+    def test_skip_fields(self):
+        @dataclass
+        @mapping(x="a", y=None)
+        class C:
+            x: int
+            y: int = 0
+
+        @dataclass()
+        @mapping(value="val", succ = None, __op="op", id="guid", c="sub")
+        class Dummy:
+            id: str
+            __op: int
+            value: int
+            c:C
+            succ: bool = False
+
+        dummy_json_text = '{"guid": "12", "op": 3, "val": 4, "sub": {"a": 2}}'
+        foo = Dummy("12", 3,  4, C(2, 7))
+        assert json.dumps(encode(foo)) == dummy_json_text
+
+        bar = decode(json.loads(dummy_json_text), Dummy)
+        bar.c.y = 7
+        assert foo == bar
+        
+    def test_renamed_fields_missing(self):
+        with pytest.raises(LocatedValidationErrorCollection, match="Missing required field: y"):
+            @dataclass
+            @mapping(x="a", y="b")
+            class C:
+                x: int
+                y: int
+
+            dummy_json_text = '{"a": 12, "y": 13}'
+            decode(json.loads(dummy_json_text), C)
+
+    def test_encoding_skips_required_fields(self):
+        with pytest.raises(Exception, match="Required field cannot be skipped: y"):
+            @dataclass
+            @mapping(x="a", y=None)
+            class C:
+                x: int
+                y: int
+            encode(C(2, 3))
+            
+    def test_decoding_skips_required_fields(self):
+        with pytest.raises(Exception, match="Required field cannot be skipped: y"):
+            @dataclass
+            @mapping(x="a", y=None)
+            class C:
+                x: int
+                y: int
+            decode({"a": 2, "y": 3}, C)

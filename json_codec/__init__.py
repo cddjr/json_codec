@@ -1,9 +1,10 @@
-from dataclasses import MISSING, asdict, is_dataclass
+from dataclasses import MISSING, fields, is_dataclass
 from datetime import date, datetime, time
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Callable, Dict, List, Tuple, TypeVar, Union, cast
+from typing import Any, Callable, Dict, List, Tuple, TypeVar, Union, cast, Optional
 from uuid import UUID
+from copy import deepcopy
 
 from typing_extensions import Type
 from .codecs.date_codec import DateTypeDecoder, serialize_date
@@ -41,6 +42,7 @@ from .types import (
 __all__ = [
     "decode",
     "encode",
+    "mapping",
 
     "LocatedValidationError",
     "LocatedValidationErrorCollection",
@@ -108,6 +110,34 @@ def is_new_type(type_: Type[Any]) -> bool:
 def get_new_type_supertype(type_: Type[Any]) -> Type[Any]:
     return cast(AssumeNewType, type_).__supertype__
 
+
+_MAPPING_FIELD = "__json_codec_mapping__"
+
+def mapping(**kwargs: Optional[str]):
+    """
+    Rename or skip certain fields
+
+    Example usage::
+
+      @dataclass
+      @mapping(x='a', y=None)
+      class C:
+          x: int
+          y: int = 0
+      assert encode(C(1, 2)) == {'a': 1}
+    """
+    def wrap(cls):
+        mapping = getattr(cls, _MAPPING_FIELD, None)
+        if mapping is None:
+            mapping = {}
+            setattr(cls, _MAPPING_FIELD, mapping)
+        for field_name, field_json_name in kwargs.items():
+            if field_name.startswith("__"):
+                field_name = f"_{cls.__name__}{field_name}"
+            mapping[field_name] = field_json_name
+        return cls
+
+    return wrap
 
 def __parse_value(
     value: Any,
@@ -209,6 +239,13 @@ def __parse_value(
     else:
         raise ValueError(f"Unsupported type: {type_}")
 
+def __get_default(field):
+    if field.default is not None and field.default is not MISSING:
+        return field.default
+    elif field.default_factory is not None and field.default_factory is not MISSING:  # type: ignore
+        return field.default_factory()  # type: ignore
+    else:
+        return MISSING
 
 def __parse_dataclass(
     value: Any,
@@ -224,27 +261,44 @@ def __parse_dataclass(
 
     kwargs: Dict[str, Any] = {}
 
+    mapping = getattr(type_, _MAPPING_FIELD, {})
+
     for field_name, field in fields.items():
 
-        field_json_path = "{}.{}".format(json_path, field_name)
+        if field_name in mapping:
+            field_json_name = mapping[field_name]
+            if field_json_name is None:
+                default = __get_default(field)
+                if default is MISSING:
+                    default = None
+                    located_errors.append(
+                        LocatedValidationError(
+                            message=f"Required field cannot be skipped: {field_name}",
+                            json_path=json_path,
+                        )
+                    )
+                kwargs[field_name] = default
+                continue
+        else:
+            field_json_name = field_name
 
-        if field_name not in value:
-            if field.default is not None and field.default is not MISSING:
-                kwargs[field_name] = field.default
-            elif field.default_factory is not None and field.default_factory is not MISSING:  # type: ignore
-                kwargs[field_name] = field.default_factory()  # type: ignore
-            else:
-                kwargs[field_name] = None
+        field_json_path = f"{json_path}.{field_json_name}"
+
+        if field_json_name not in value:
+            default = __get_default(field)
+            if default is MISSING:
+                default = None
                 located_errors.append(
                     LocatedValidationError(
-                        message="Missing required field: {}".format(field_name),
+                        message=f"Missing required field: {field_name}",
                         json_path=json_path,
                     )
                 )
+            kwargs[field_name] = default
             continue
 
         parsed_value = __parse_value(
-            value[field_name],
+            value[field_json_name],
             field.type,
             field_json_path,
             located_errors,
@@ -254,6 +308,32 @@ def __parse_dataclass(
 
     return cast(Callable[..., T], type_)(**kwargs)
 
+def __asdict(obj, dict_factory=dict):
+    if is_dataclass(obj):
+        mapping = getattr(obj, _MAPPING_FIELD, {})
+        result = []
+        for f in fields(obj):
+            field_json_name = f.name
+            if f.name in mapping:
+                field_json_name = mapping[f.name]
+                if field_json_name is None:
+                    # skip field
+                    if __get_default(f) is MISSING:
+                        raise Exception(f"Required field cannot be skipped: {f.name}")
+                    continue
+            value = __asdict(getattr(obj, f.name), dict_factory)
+            result.append((field_json_name, value))
+        return dict_factory(result)
+    elif isinstance(obj, tuple) and hasattr(obj, '_fields'):
+        return type(obj)(*[__asdict(v, dict_factory) for v in obj])
+    elif isinstance(obj, (list, tuple)):
+        return type(obj)(__asdict(v, dict_factory) for v in obj)
+    elif isinstance(obj, dict):
+        return type(obj)((__asdict(k, dict_factory),
+                        __asdict(v, dict_factory))
+                        for k, v in obj.items())
+    else:
+        return deepcopy(obj)
 
 def get_class_or_type_name(type_: Type[Any]) -> str:
     if is_generic(type_):
@@ -297,7 +377,7 @@ def __encode(value: Any) -> Any:
     if isinstance(value, dict):
         return {__encode(k): __encode(v) for k, v in value.items()}
     if is_dataclass(value):
-        return __encode(asdict(value))
+        return __encode(__asdict(value))
     if value is None:
         return None
     raise ValueError(f"Unsupported type: {type(value)}")
