@@ -8,7 +8,7 @@ from typing import Dict, List, NewType, Optional, Union, Tuple, Set
 
 import pytest
 
-from json_codec.json_codec import (
+from json_codec import (
     LocatedValidationErrorCollection,
     get_class_or_type_name,
     decode,
