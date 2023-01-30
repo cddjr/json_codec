@@ -240,9 +240,9 @@ def __parse_value(
         raise ValueError(f"Unsupported type: {type_}")
 
 def __get_default(field):
-    if field.default is not None and field.default is not MISSING:
+    if field.default is not MISSING:
         return field.default
-    elif field.default_factory is not None and field.default_factory is not MISSING:  # type: ignore
+    elif field.default_factory is not MISSING:  # type: ignore
         return field.default_factory()  # type: ignore
     else:
         return MISSING

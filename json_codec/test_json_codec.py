@@ -454,3 +454,28 @@ class TestJsonDeserializerCodec:
                 x: int
                 y: int
             decode({"a": 2, "y": 3}, C)
+
+    def test_dataclass_with_default(self):
+        @dataclass()
+        class Dummy:
+            a: str
+            b: int = 4
+
+        dummy_json_text = '{"a": "123", "b": 4}'
+        foo = Dummy("123")
+        assert json.dumps(encode(foo)) == dummy_json_text
+
+        bar = decode(json.loads(dummy_json_text), Dummy)
+        assert foo == bar
+
+    def test_dataclass_with_none(self):
+        @dataclass()
+        class Dummy:
+            a: str
+            b: Optional[int] = None
+
+        dummy_json_text = '{"a": "123"}'
+        foo = Dummy("123")
+
+        bar = decode(json.loads(dummy_json_text), Dummy)
+        assert foo == bar
