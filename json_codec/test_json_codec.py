@@ -479,3 +479,28 @@ class TestJsonDeserializerCodec:
 
         bar = decode(json.loads(dummy_json_text), Dummy)
         assert foo == bar
+
+    def test_bool_decoder(self):
+        @dataclass
+        class Dummy:
+            a: bool
+            b: bool
+            c: bool
+            d: bool
+            e: bool
+            f: bool
+        
+        parsed = decode({"a": False, "b":"TrUe", 
+                         "c":"fAlSe", "d":123, 
+                         "e":0, "f":" false"}, Dummy)
+        assert parsed == Dummy(a=False, b=True, c=False, d=True, e=False, f=True)
+
+    def test_raise_when_decoding_bool(self):
+        @dataclass
+        class Dummy:
+            a: bool
+        
+        with pytest.raises(LocatedValidationErrorCollection, 
+                           match="Expected type bool"):
+            decode({"a": []}, Dummy)
+        

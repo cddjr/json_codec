@@ -13,6 +13,7 @@ from .codecs.datetime_codec import (
     serialize_datetime,
 )
 
+from .codecs.bool_codec import BoolTypeDecoder
 from .codecs.dict_codec import DictTypeDecoder
 from .codecs.list_codec import ListTypeDecoder as ListTypeParser
 from .codecs.primitive_codec import (
@@ -55,7 +56,7 @@ typers_parsers: Dict[Any, TypeDecoder[Any]] = {
     str: PrimitiveTypeDecoder(str),
     int: PrimitiveTypeDecoder(int),
     float: PrimitiveTypeDecoder(float),
-    bool: PrimitiveTypeDecoder(bool),
+    bool: BoolTypeDecoder(),
     dict: DictTypeDecoder(),
     list: ListTypeParser(),
     tuple: TupleTypeParser(),
